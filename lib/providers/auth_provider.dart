@@ -9,11 +9,13 @@ class AuthProvider with ChangeNotifier {
   
   User? _user;
   bool _isLoading = false;
+  String _errorMessage = '';
   
   User? get user => _user;
   bool get isAuthenticated => _user != null;
   bool get isLoading => _isLoading;
   String get email => _user?.email ?? '';
+  String get errorMessage => _errorMessage;
 
   AuthProvider() {
     _auth.authStateChanges().listen((User? user) {
@@ -24,6 +26,7 @@ class AuthProvider with ChangeNotifier {
 
   Future<UserCredential?> signInWithGoogle() async {
     _isLoading = true;
+    _errorMessage = '';
     notifyListeners();
     
     try {
@@ -52,13 +55,23 @@ class AuthProvider with ChangeNotifier {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isAuthenticated', true);
       
+      _user = userCredential.user;  // Make sure user is set
       _isLoading = false;
       notifyListeners();
       return userCredential;
     } catch (e) {
       _isLoading = false;
+      
+      // Handle specific error cases
+      if (e is FirebaseAuthException) {
+        _errorMessage = "Firebase Auth Error: ${e.message}";
+      } else {
+        _errorMessage = "Error signing in: $e";
+      }
+      
+      debugPrint("Google Sign-In Error: $e");
       notifyListeners();
-      rethrow;
+      return null;
     }
   }
 
