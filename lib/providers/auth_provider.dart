@@ -1,47 +1,90 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthProvider with ChangeNotifier {
-  bool _isAuthenticated = false;
-  String _email = '';
+  final FirebaseAuth _auth = FirebaseAuth.instance;
+  final GoogleSignIn _googleSignIn = GoogleSignIn();
   
-  bool get isAuthenticated => _isAuthenticated;
-  String get email => _email;
+  User? _user;
+  bool _isLoading = false;
+  
+  User? get user => _user;
+  bool get isAuthenticated => _user != null;
+  bool get isLoading => _isLoading;
+  String get email => _user?.email ?? '';
 
-  Future<bool> login(String email, String password) async {
-    // In a real app, you would validate credentials against a backend
-    // For this example, we'll accept any non-empty values
-    if (email.isNotEmpty && password.isNotEmpty) {
-      _isAuthenticated = true;
-      _email = email;
+  AuthProvider() {
+    _auth.authStateChanges().listen((User? user) {
+      _user = user;
+      notifyListeners();
+    });
+  }
+
+  Future<UserCredential?> signInWithGoogle() async {
+    _isLoading = true;
+    notifyListeners();
+    
+    try {
+      // Trigger the authentication flow
+      final GoogleSignInAccount? googleUser = await _googleSignIn.signIn();
+      
+      if (googleUser == null) {
+        _isLoading = false;
+        notifyListeners();
+        return null;
+      }
+
+      // Obtain the auth details from the request
+      final GoogleSignInAuthentication googleAuth = await googleUser.authentication;
+
+      // Create a new credential
+      final credential = GoogleAuthProvider.credential(
+        accessToken: googleAuth.accessToken,
+        idToken: googleAuth.idToken,
+      );
+
+      // Sign in to Firebase with the Google credential
+      final userCredential = await _auth.signInWithCredential(credential);
       
       // Store authentication state
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('isAuthenticated', true);
-      await prefs.setString('email', email);
       
+      _isLoading = false;
       notifyListeners();
-      return true;
+      return userCredential;
+    } catch (e) {
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
     }
-    return false;
   }
 
-  Future<void> logout() async {
-    _isAuthenticated = false;
-    _email = '';
-    
-    // Clear authentication state
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool('isAuthenticated', false);
-    await prefs.remove('email');
-    
+  Future<void> signOut() async {
+    _isLoading = true;
     notifyListeners();
+    
+    try {
+      await _googleSignIn.signOut();
+      await _auth.signOut();
+      
+      // Clear authentication state
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setBool('isAuthenticated', false);
+      
+      _isLoading = false;
+      notifyListeners();
+    } catch (e) {
+      _isLoading = false;
+      notifyListeners();
+      rethrow;
+    }
   }
 
   Future<void> checkAuthStatus() async {
-    final prefs = await SharedPreferences.getInstance();
-    _isAuthenticated = prefs.getBool('isAuthenticated') ?? false;
-    _email = prefs.getString('email') ?? '';
+    _user = _auth.currentUser;
     notifyListeners();
   }
 }
